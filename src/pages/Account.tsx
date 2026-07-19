@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LogOut, User, Package, Settings } from 'lucide-react';
+import { LogOut, User, Package, Settings, ClipboardList } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { supabase } from '@/integrations/supabase/client';
 import { OrderItem } from '@/types/database';
 import { cn } from '@/lib/utils';
@@ -19,6 +20,7 @@ const statusStyles: Record<string, string> = {
 
 const Account = () => {
   const { user, isAuthenticated, isLoading, signOut } = useAuth();
+  const { data: isAdmin } = useIsAdmin();
   const navigate = useNavigate();
 
   const { data: orders, isLoading: ordersLoading } = useQuery({
@@ -69,6 +71,15 @@ const Account = () => {
                 <User className="h-5 w-5" />
                 Profile
               </button>
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className="flex w-full items-center gap-3 p-4 text-left text-sm font-medium text-gold transition-colors hover:bg-secondary"
+                >
+                  <ClipboardList className="h-5 w-5" />
+                  Manage Orders (Admin)
+                </Link>
+              )}
               <button className="flex w-full items-center gap-3 p-4 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 <Package className="h-5 w-5" />
                 Orders

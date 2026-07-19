@@ -8,6 +8,7 @@ import Shop from "./pages/Shop";
 import ProductDetail from "./pages/ProductDetail";
 import Auth from "./pages/Auth";
 import Account from "./pages/Account";
+import Admin from "./pages/Admin";
 import Checkout from "./pages/Checkout";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import About from "./pages/About";
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/order-confirmation" element={<OrderConfirmation />} />
           <Route path="/about" element={<About />} />
