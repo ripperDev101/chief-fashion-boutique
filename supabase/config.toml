@@ -1,1 +1,8 @@
 project_id = "wjzxsahopwvablpmhdmm"
+
+# Ozow posts payment notifications server-to-server without a Supabase JWT.
+[functions.ozow-notify]
+verify_jwt = false
+
+[functions.ozow-checkout]
+verify_jwt = true

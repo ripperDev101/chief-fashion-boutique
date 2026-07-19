@@ -145,7 +145,13 @@ const Checkout = () => {
         saveGuestPendingOrder(orderId, orderItems, grandTotal, form);
       }
 
-      const request = createOzowCheckoutRequest(orderId, grandTotal, form.fullName, form.email, baseUrl);
+      const request = await createOzowCheckoutRequest(
+        orderId,
+        items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+        form.fullName,
+        form.email,
+        baseUrl
+      );
       setPaymentRequest(request);
 
     } catch (error) {
