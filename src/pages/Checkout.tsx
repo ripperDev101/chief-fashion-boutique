@@ -25,25 +25,6 @@ const shippingSchema = z.object({
 
 type ShippingForm = z.infer<typeof shippingSchema>;
 
-const saveGuestPendingOrder = (
-  orderId: string,
-  items: unknown[],
-  total: number,
-  shippingAddress: ShippingForm
-) => {
-  localStorage.setItem(
-    `chief-fashion-pending-order-${orderId}`,
-    JSON.stringify({
-      id: orderId,
-      items,
-      total,
-      shippingAddress,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    })
-  );
-};
-
 const Checkout = () => {
   const navigate = useNavigate();
   const { items, getTotal, clearCart, removeItem } = useCartStore();
@@ -142,39 +123,20 @@ const Checkout = () => {
     setIsLoading(true);
 
     try {
-      const orderItems = items.map((item) => ({
-        productId: item.productId,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        size: item.size,
-        color: item.color,
-        image: item.image,
-      }));
-
       const orderId = crypto.randomUUID();
       const baseUrl = window.location.origin;
 
-      if (user?.id) {
-        const { error: orderError } = await supabase.from('orders').insert({
-          id: orderId,
-          user_id: user.id,
-          items: orderItems,
-          total: grandTotal,
-          status: 'pending',
-          shipping_address: form,
-        });
-
-        if (orderError) throw orderError;
-      } else {
-        saveGuestPendingOrder(orderId, orderItems, grandTotal, form);
-      }
-
+      // The ozow-checkout edge function stores the order (guest or account)
+      // with the shipping details and returns the signed payment form.
       const request = await createOzowCheckoutRequest(
         orderId,
-        items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-        form.fullName,
-        form.email,
+        items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          size: item.size,
+          color: item.color,
+        })),
+        form,
         baseUrl
       );
       setPaymentRequest(request);

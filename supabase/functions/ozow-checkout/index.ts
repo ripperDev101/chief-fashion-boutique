@@ -18,6 +18,19 @@ const corsHeaders = {
 interface CheckoutItem {
   productId: string;
   quantity: number;
+  size?: string;
+  color?: string;
+}
+
+interface ShippingAddress {
+  fullName: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
 }
 
 interface CheckoutRequest {
@@ -25,6 +38,7 @@ interface CheckoutRequest {
   items: CheckoutItem[];
   customerName: string;
   customerEmail: string;
+  shippingAddress: ShippingAddress;
   baseUrl: string;
 }
 
@@ -88,7 +102,7 @@ Deno.serve(async (req) => {
     }
 
     const body = (await req.json()) as CheckoutRequest;
-    const { orderId, items, customerName, customerEmail, baseUrl } = body;
+    const { orderId, items, customerName, customerEmail, shippingAddress, baseUrl } = body;
 
     if (!orderId || !isUuid(orderId)) {
       throw new Error("Invalid order reference");
@@ -104,6 +118,13 @@ Deno.serve(async (req) => {
       ) {
         throw new Error("Invalid item");
       }
+    }
+    if (
+      !shippingAddress || typeof shippingAddress !== "object" ||
+      !shippingAddress.fullName || !shippingAddress.address ||
+      !shippingAddress.city || !shippingAddress.phone
+    ) {
+      throw new Error("Shipping details are required");
     }
 
     let origin: string;
@@ -122,7 +143,7 @@ Deno.serve(async (req) => {
     const productIds = [...new Set(items.map((i) => i.productId))];
     const { data: products, error: productsError } = await supabase
       .from("products")
-      .select("id, price, stock")
+      .select("id, name, price, images, stock")
       .in("id", productIds);
 
     if (productsError) throw productsError;
@@ -130,13 +151,48 @@ Deno.serve(async (req) => {
       throw new Error("One or more products no longer exist");
     }
 
-    const priceById = new Map(products.map((p) => [p.id, Number(p.price)]));
+    const productById = new Map(products.map((p) => [p.id, p]));
     let subtotal = 0;
-    for (const item of items) {
-      subtotal += priceById.get(item.productId)! * item.quantity;
-    }
+    const orderItems = items.map((item) => {
+      const product = productById.get(item.productId)!;
+      subtotal += Number(product.price) * item.quantity;
+      return {
+        productId: item.productId,
+        name: product.name,
+        price: Number(product.price),
+        quantity: item.quantity,
+        size: item.size || "One Size",
+        color: item.color || "Default",
+        image: (product.images && product.images[0]) || "",
+      };
+    });
     const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
     const total = subtotal + shipping;
+
+    // Identify the customer from their auth token (if logged in). Guests get
+    // user_id = NULL. Never trust a client-supplied user id.
+    let userId: string | null = null;
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (token) {
+      const { data: userData } = await supabase.auth.getUser(token);
+      userId = userData?.user?.id ?? null;
+    }
+
+    // Persist the order server-side so the store always has the shipping info.
+    const { error: orderError } = await supabase.from("orders").upsert({
+      id: orderId,
+      user_id: userId,
+      items: orderItems,
+      total,
+      status: "pending",
+      shipping_address: shippingAddress,
+    }, { onConflict: "id", ignoreDuplicates: false });
+
+    if (orderError) {
+      console.error("ozow-checkout: order insert failed", orderError.message);
+      throw new Error("Could not save your order. Please try again.");
+    }
 
     const notifyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/ozow-notify`;
 
