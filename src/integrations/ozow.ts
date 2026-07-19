@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface OzowCheckoutItem {
@@ -27,7 +28,16 @@ export const createOzowCheckoutRequest = async (
   });
 
   if (error) {
-    throw new Error('Could not start the payment. Please try again.');
+    let message = 'Could not start the payment. Please try again.';
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const body = await error.context.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // keep generic message
+      }
+    }
+    throw new Error(message);
   }
   if (data?.error) {
     throw new Error(data.error);

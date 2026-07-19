@@ -46,7 +46,7 @@ const saveGuestPendingOrder = (
 
 const Checkout = () => {
   const navigate = useNavigate();
-  const { items, getTotal, clearCart } = useCartStore();
+  const { items, getTotal, clearCart, removeItem } = useCartStore();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<ShippingForm>>({});
@@ -89,6 +89,31 @@ const Checkout = () => {
       }
     }
   }, [paymentRequest]);
+
+  // Remove cart items whose products no longer exist (e.g. stale carts saved
+  // in the browser before a catalogue change).
+  useEffect(() => {
+    const validateCart = async () => {
+      const currentItems = useCartStore.getState().items;
+      if (currentItems.length === 0) return;
+
+      const ids = [...new Set(currentItems.map((i) => i.productId))];
+      const { data, error } = await supabase.from('products').select('id').in('id', ids);
+      if (error || !data) return;
+
+      const validIds = new Set(data.map((p) => p.id));
+      const staleItems = currentItems.filter((i) => !validIds.has(i.productId));
+
+      if (staleItems.length > 0) {
+        staleItems.forEach((i) => removeItem(i.id));
+        toast.error(
+          'Some items in your bag are no longer available and were removed. Please re-add them from the shop.'
+        );
+      }
+    };
+    validateCart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const total = getTotal();
   const shipping = total >= 1500 ? 0 : 100;
