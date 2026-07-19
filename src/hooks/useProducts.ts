@@ -34,7 +34,7 @@ const PRODUCT_OVERRIDES: Record<string, Partial<Product>> = {
       '',
       '* Organic shweshwe material',
       '* Pockets',
-      '* Zip at back with chimgwe',
+      '* Zip at back with string',
       '* Under the knee',
       '* Doek included',
     ].join('\n'),
