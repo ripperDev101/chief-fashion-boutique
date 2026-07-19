@@ -4,6 +4,7 @@ import { Menu, X, ShoppingBag, User, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { cn } from '@/lib/utils';
 import { SearchDialog } from '@/components/search/SearchDialog';
 
@@ -20,6 +21,7 @@ export const Header = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const { openCart, getItemCount } = useCartStore();
   const { isAuthenticated } = useAuth();
+  const { data: isAdmin } = useIsAdmin();
   const itemCount = getItemCount();
 
   return (
@@ -58,6 +60,14 @@ export const Header = () => {
                 {item.name}
               </Link>
             ))}
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className="text-sm font-semibold tracking-wide uppercase text-gold transition-colors duration-base hover:text-gold/80"
+              >
+                Admin
+              </Link>
+            )}
           </div>
 
           {/* Right side actions */}
@@ -134,6 +144,15 @@ export const Header = () => {
                       {item.name}
                     </Link>
                   ))}
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      className="-mx-3 block rounded-lg px-3 py-3 text-base font-semibold tracking-wide uppercase text-gold hover:bg-secondary"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
+                  )}
                 </div>
                 <div className="py-6">
                   <Link
