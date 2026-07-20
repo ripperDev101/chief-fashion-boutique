@@ -39,6 +39,7 @@ interface CheckoutRequest {
   customerName: string;
   customerEmail: string;
   shippingAddress: ShippingAddress;
+  deliveryMethod?: string;
   baseUrl: string;
 }
 
@@ -103,6 +104,7 @@ Deno.serve(async (req) => {
 
     const body = (await req.json()) as CheckoutRequest;
     const { orderId, items, customerName, customerEmail, shippingAddress, baseUrl } = body;
+    const deliveryMethod = body.deliveryMethod === "pickup" ? "pickup" : "ship";
 
     if (!orderId || !isUuid(orderId)) {
       throw new Error("Invalid order reference");
@@ -121,10 +123,11 @@ Deno.serve(async (req) => {
     }
     if (
       !shippingAddress || typeof shippingAddress !== "object" ||
-      !shippingAddress.fullName || !shippingAddress.address ||
-      !shippingAddress.city || !shippingAddress.phone
+      !shippingAddress.fullName || !shippingAddress.phone ||
+      (deliveryMethod === "ship" &&
+        (!shippingAddress.address || !shippingAddress.city))
     ) {
-      throw new Error("Shipping details are required");
+      throw new Error("Delivery details are required");
     }
 
     let origin: string;
@@ -166,7 +169,11 @@ Deno.serve(async (req) => {
         image: (product.images && product.images[0]) || "",
       };
     });
-    const shipping = subtotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
+    const shipping = deliveryMethod === "pickup"
+      ? 0
+      : subtotal >= FREE_SHIPPING_THRESHOLD
+      ? 0
+      : SHIPPING_FEE;
     const total = subtotal + shipping;
 
     // Identify the customer from their auth token (if logged in). Guests get
@@ -179,14 +186,14 @@ Deno.serve(async (req) => {
       userId = userData?.user?.id ?? null;
     }
 
-    // Persist the order server-side so the store always has the shipping info.
+    // Persist the order server-side so the store always has the delivery info.
     const { error: orderError } = await supabase.from("orders").upsert({
       id: orderId,
       user_id: userId,
       items: orderItems,
       total,
       status: "pending",
-      shipping_address: shippingAddress,
+      shipping_address: { ...shippingAddress, deliveryMethod },
     }, { onConflict: "id", ignoreDuplicates: false });
 
     if (orderError) {

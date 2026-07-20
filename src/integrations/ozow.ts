@@ -33,8 +33,9 @@ export interface OzowCheckoutRequest {
 export const createOzowCheckoutRequest = async (
   orderId: string,
   items: OzowCheckoutItem[],
-  shippingAddress: OzowShippingAddress,
-  baseUrl: string
+  shippingAddress: OzowShippingAddress & { deliveryMethod?: string; company?: string },
+  baseUrl: string,
+  deliveryMethod: 'ship' | 'pickup' = 'ship'
 ): Promise<OzowCheckoutRequest> => {
   const { data, error } = await supabase.functions.invoke('ozow-checkout', {
     body: {
@@ -43,6 +44,7 @@ export const createOzowCheckoutRequest = async (
       customerName: shippingAddress.fullName,
       customerEmail: shippingAddress.email,
       shippingAddress,
+      deliveryMethod,
       baseUrl,
     },
   });

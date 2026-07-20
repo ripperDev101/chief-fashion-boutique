@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ChevronLeft, Minus, Plus, Truck, RefreshCw, Shield } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Plus, Truck, RefreshCw, Shield, MapPin, Share2 } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { useProduct, useProducts } from '@/hooks/useProducts';
@@ -78,6 +78,23 @@ const ProductDetail = () => {
     }
   };
 
+  const handleShare = async () => {
+    const shareData = {
+      title: product?.name || 'Chief Fashion',
+      url: window.location.href,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch {
+        /* user cancelled */
+      }
+    } else {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied to clipboard');
+    }
+  };
+
   if (isLoading) {
     return (
       <Layout>
@@ -136,12 +153,39 @@ const ProductDetail = () => {
           <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">
             {/* Images */}
             <div className="space-y-4">
-              <div className="aspect-[3/4] overflow-hidden bg-secondary">
+              <div className="relative aspect-[3/4] overflow-hidden bg-secondary">
                 <img
                   src={mainImage}
                   alt={product.name}
                   className="h-full w-full object-cover object-center"
                 />
+                {product.images.length > 1 && (
+                  <>
+                    <button
+                      onClick={() =>
+                        setSelectedImageIndex(
+                          (selectedImageIndex - 1 + product.images.length) % product.images.length
+                        )
+                      }
+                      aria-label="Previous image"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm transition-colors hover:bg-background"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() =>
+                        setSelectedImageIndex((selectedImageIndex + 1) % product.images.length)
+                      }
+                      aria-label="Next image"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 shadow-sm transition-colors hover:bg-background"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                    <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-background/80 px-3 py-1 text-xs">
+                      {selectedImageIndex + 1} / {product.images.length}
+                    </span>
+                  </>
+                )}
               </div>
               {product.images.length > 1 && (
                 <div className="flex gap-4 overflow-x-auto">
@@ -179,6 +223,13 @@ const ProductDetail = () => {
               <h1 className="mt-2 font-display text-3xl font-light sm:text-4xl">{product.name}</h1>
 
               <p className="mt-4 text-2xl font-light">R {product.price.toFixed(2)} ZAR</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tax included.{' '}
+                <Link to="/shipping" className="underline hover:text-foreground">
+                  Delivery
+                </Link>{' '}
+                calculated at checkout.
+              </p>
 
               <p className="mt-6 whitespace-pre-line leading-relaxed text-muted-foreground">{product.description}</p>
 
@@ -278,6 +329,25 @@ const ProductDetail = () => {
                   {product.stock === 0 ? 'Sold Out' : 'Buy It Now'}
                 </Button>
               </div>
+
+              {/* Pickup availability — Shopify style */}
+              <div className="mt-6 flex items-start gap-3 rounded-lg border border-border p-4">
+                <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-gold" />
+                <div className="text-sm">
+                  <p className="font-medium">Pickup available at Chief Fashion House</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    102 Helen Joseph Street, Johannesburg CBD · Usually ready in 5–7 working days
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleShare}
+                className="mt-4 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Share2 className="h-4 w-4" />
+                Share
+              </button>
 
               {/* Benefits */}
               <div className="mt-10 space-y-4 border-t border-border pt-10">

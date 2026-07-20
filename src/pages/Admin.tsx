@@ -224,7 +224,9 @@ const Admin = () => {
                       {/* Shipping */}
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-wider">
-                          Ship To (The Courier Guy)
+                          {(address as { deliveryMethod?: string })?.deliveryMethod === 'pickup'
+                            ? 'Customer Collection (Pickup — Free)'
+                            : 'Ship To (The Courier Guy)'}
                         </h3>
                         {address ? (
                           <div className="mt-3 space-y-2 text-sm text-muted-foreground">

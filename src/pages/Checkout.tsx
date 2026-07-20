@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { z } from 'zod';
+import { ChevronDown, Truck, MapPin, ShoppingBag } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -12,36 +14,72 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { createOzowCheckoutRequest, OzowCheckoutRequest } from '@/integrations/ozow';
 
-const shippingSchema = z.object({
-  fullName: z.string().min(1, 'Name is required'),
-  email: z.string().email('Invalid email'),
-  phone: z.string().min(10, 'Phone number is required'),
+type DeliveryMethod = 'ship' | 'pickup';
+
+const baseSchema = {
+  email: z.string().email('Enter a valid email'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  phone: z.string().min(10, 'Enter a valid phone number'),
+};
+
+const shipSchema = z.object({
+  ...baseSchema,
   address: z.string().min(1, 'Address is required'),
+  apartment: z.string().optional(),
+  company: z.string().optional(),
   city: z.string().min(1, 'City is required'),
   state: z.string().min(1, 'Province is required'),
   zipCode: z.string().min(4, 'Postal code is required'),
-  country: z.string().min(1, 'Country is required'),
 });
 
-type ShippingForm = z.infer<typeof shippingSchema>;
+const pickupSchema = z.object({
+  ...baseSchema,
+  address: z.string().optional(),
+  apartment: z.string().optional(),
+  company: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+});
+
+interface CheckoutForm {
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  company: string;
+  address: string;
+  apartment: string;
+  city: string;
+  state: string;
+  zipCode: string;
+}
+
+const PICKUP_LOCATION = 'Chief Fashion House, 102 Helen Joseph Street, Johannesburg CBD';
 
 const Checkout = () => {
   const navigate = useNavigate();
   const { items, getTotal, clearCart, removeItem } = useCartStore();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [errors, setErrors] = useState<Partial<ShippingForm>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof CheckoutForm, string>>>({});
   const [paymentRequest, setPaymentRequest] = useState<OzowCheckoutRequest | null>(null);
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('ship');
+  const [newsletterOptIn, setNewsletterOptIn] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
-  const [form, setForm] = useState<ShippingForm>({
-    fullName: '',
+  const [form, setForm] = useState<CheckoutForm>({
     email: user?.email || '',
+    firstName: '',
+    lastName: '',
     phone: '',
+    company: '',
     address: '',
+    apartment: '',
     city: '',
     state: '',
     zipCode: '',
-    country: 'South Africa',
   });
 
   useEffect(() => {
@@ -64,9 +102,9 @@ const Checkout = () => {
 
   useEffect(() => {
     if (paymentRequest) {
-      const form = document.getElementById('ozow-form') as HTMLFormElement;
-      if (form) {
-        form.submit();
+      const ozowForm = document.getElementById('ozow-form') as HTMLFormElement;
+      if (ozowForm) {
+        ozowForm.submit();
       }
     }
   }, [paymentRequest]);
@@ -97,11 +135,10 @@ const Checkout = () => {
   }, []);
 
   const total = getTotal();
-  const shipping = total >= 1500 ? 0 : 100;
-  const tax = 0;
-  const grandTotal = total + shipping + tax;
+  const shipping = deliveryMethod === 'pickup' ? 0 : total >= 1500 ? 0 : 100;
+  const grandTotal = total + shipping;
 
-  const updateForm = (field: keyof ShippingForm, value: string) => {
+  const updateForm = (field: keyof CheckoutForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: undefined }));
   };
@@ -109,11 +146,12 @@ const Checkout = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const result = shippingSchema.safeParse(form);
+    const schema = deliveryMethod === 'ship' ? shipSchema : pickupSchema;
+    const result = schema.safeParse(form);
     if (!result.success) {
-      const fieldErrors: Partial<ShippingForm> = {};
+      const fieldErrors: Partial<Record<keyof CheckoutForm, string>> = {};
       result.error.errors.forEach((err) => {
-        const field = err.path[0] as keyof ShippingForm;
+        const field = err.path[0] as keyof CheckoutForm;
         fieldErrors[field] = err.message;
       });
       setErrors(fieldErrors);
@@ -125,9 +163,38 @@ const Checkout = () => {
     try {
       const orderId = crypto.randomUUID();
       const baseUrl = window.location.origin;
+      const fullName = `${form.firstName} ${form.lastName}`.trim();
+
+      if (newsletterOptIn) {
+        // Best effort — never block checkout on this.
+        supabase
+          .from('contact_messages')
+          .insert({
+            name: fullName || 'Newsletter Subscriber',
+            email: form.email,
+            message: 'Newsletter opt-in from checkout.',
+          })
+          .then(() => {});
+      }
+
+      const shippingAddress = {
+        fullName,
+        email: form.email,
+        phone: form.phone,
+        deliveryMethod,
+        company: form.company || undefined,
+        address:
+          deliveryMethod === 'pickup'
+            ? PICKUP_LOCATION
+            : `${form.address}${form.apartment ? `, ${form.apartment}` : ''}`,
+        city: deliveryMethod === 'pickup' ? 'Johannesburg' : form.city,
+        state: deliveryMethod === 'pickup' ? 'Gauteng' : form.state,
+        zipCode: deliveryMethod === 'pickup' ? '2000' : form.zipCode,
+        country: 'South Africa',
+      };
 
       // The ozow-checkout edge function stores the order (guest or account)
-      // with the shipping details and returns the signed payment form.
+      // with the delivery details and returns the signed payment form.
       const request = await createOzowCheckoutRequest(
         orderId,
         items.map((item) => ({
@@ -136,8 +203,9 @@ const Checkout = () => {
           size: item.size,
           color: item.color,
         })),
-        form,
-        baseUrl
+        shippingAddress,
+        baseUrl,
+        deliveryMethod
       );
       setPaymentRequest(request);
 
@@ -167,29 +235,101 @@ const Checkout = () => {
     );
   }
 
+  const summaryItems = (
+    <div className="space-y-4">
+      {items.map((item) => (
+        <div key={item.id} className="flex gap-4">
+          <div className="relative h-20 w-16 flex-shrink-0 overflow-hidden rounded bg-secondary">
+            <img
+              src={item.image}
+              alt={item.name}
+              className="h-full w-full object-cover object-center"
+            />
+            <span className="absolute -right-0 -top-0 flex h-5 w-5 items-center justify-center rounded-full bg-foreground/80 text-[10px] font-medium text-background">
+              {item.quantity}
+            </span>
+          </div>
+          <div className="flex flex-1 flex-col justify-center">
+            <h4 className="text-sm font-medium">{item.name}</h4>
+            <p className="text-xs text-muted-foreground">
+              {item.size} / {item.color}
+            </p>
+          </div>
+          <p className="self-center text-sm font-medium">
+            R {(item.price * item.quantity).toFixed(2)}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+
+  const summaryTotals = (
+    <div className="space-y-2 border-t border-border pt-4">
+      <div className="flex justify-between text-sm">
+        <span className="text-muted-foreground">Subtotal</span>
+        <span>R {total.toFixed(2)} ZAR</span>
+      </div>
+      <div className="flex justify-between text-sm">
+        <span className="text-muted-foreground">
+          {deliveryMethod === 'pickup' ? 'Pickup (Chief Fashion House)' : 'Shipping (The Courier Guy)'}
+        </span>
+        <span className="text-gold">
+          {shipping === 0 ? 'Free' : `R ${shipping.toFixed(2)} ZAR`}
+        </span>
+      </div>
+      <div className="flex justify-between border-t border-border pt-4 text-lg font-semibold">
+        <span>Total</span>
+        <span>
+          <span className="mr-2 text-xs font-normal text-muted-foreground">ZAR</span>
+          R {grandTotal.toFixed(2)}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">Tax included.</p>
+    </div>
+  );
+
   return (
     <Layout>
+      {/* Mobile collapsible order summary — Shopify style */}
+      <div className="border-b border-border bg-secondary/30 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setSummaryOpen(!summaryOpen)}
+          className="container-wide flex w-full items-center justify-between py-4"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-gold">
+            <ShoppingBag className="h-4 w-4" />
+            Order summary
+            <ChevronDown
+              className={cn('h-4 w-4 transition-transform', summaryOpen && 'rotate-180')}
+            />
+          </span>
+          <span className="text-lg font-semibold">R {grandTotal.toFixed(2)}</span>
+        </button>
+        {summaryOpen && (
+          <div className="container-wide space-y-4 pb-6">
+            {summaryItems}
+            {summaryTotals}
+          </div>
+        )}
+      </div>
+
       <div className="section-padding">
         <div className="container-wide">
-          <h1 className="font-display text-4xl font-light">Checkout</h1>
-
-          <form onSubmit={handleSubmit} className="mt-12 grid gap-12 lg:grid-cols-2">
-            {/* Shipping Form */}
-            <div>
-              <h2 className="text-lg font-semibold">Shipping Information</h2>
-
-              <div className="mt-6 space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name</Label>
-                    <Input
-                      id="fullName"
-                      value={form.fullName}
-                      onChange={(e) => updateForm('fullName', e.target.value)}
-                      className={cn(errors.fullName && 'border-destructive')}
-                    />
-                    {errors.fullName && <p className="text-sm text-destructive">{errors.fullName}</p>}
-                  </div>
+          <form onSubmit={handleSubmit} className="grid gap-12 lg:grid-cols-2">
+            {/* Left column — contact, delivery, payment */}
+            <div className="space-y-10">
+              {/* Contact */}
+              <section>
+                <div className="flex items-center justify-between">
+                  <h2 className="font-display text-2xl font-light">Contact</h2>
+                  {!isAuthenticated && (
+                    <Link to="/auth" className="text-sm text-gold underline hover:no-underline">
+                      Sign in
+                    </Link>
+                  )}
+                </div>
+                <div className="mt-4 space-y-3">
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <Input
@@ -197,139 +337,229 @@ const Checkout = () => {
                       type="email"
                       value={form.email}
                       onChange={(e) => updateForm('email', e.target.value)}
+                      placeholder="you@example.com"
                       className={cn(errors.email && 'border-destructive')}
                     />
                     {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input
-                    id="phone"
-                    value={form.phone}
-                    onChange={(e) => updateForm('phone', e.target.value)}
-                    className={cn(errors.phone && 'border-destructive')}
-                  />
-                  {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={form.address}
-                    onChange={(e) => updateForm('address', e.target.value)}
-                    className={cn(errors.address && 'border-destructive')}
-                  />
-                  {errors.address && <p className="text-sm text-destructive">{errors.address}</p>}
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={form.city}
-                      onChange={(e) => updateForm('city', e.target.value)}
-                      className={cn(errors.city && 'border-destructive')}
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Checkbox
+                      checked={newsletterOptIn}
+                      onCheckedChange={(v) => setNewsletterOptIn(v === true)}
                     />
-                    {errors.city && <p className="text-sm text-destructive">{errors.city}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="state">Province</Label>
-                    <Input
-                      id="state"
-                      value={form.state}
-                      onChange={(e) => updateForm('state', e.target.value)}
-                      className={cn(errors.state && 'border-destructive')}
-                    />
-                    {errors.state && <p className="text-sm text-destructive">{errors.state}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode">Postal Code</Label>
-                    <Input
-                      id="zipCode"
-                      value={form.zipCode}
-                      onChange={(e) => updateForm('zipCode', e.target.value)}
-                      className={cn(errors.zipCode && 'border-destructive')}
-                    />
-                    {errors.zipCode && <p className="text-sm text-destructive">{errors.zipCode}</p>}
-                  </div>
+                    Email me with news and offers
+                  </label>
                 </div>
+              </section>
 
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    value={form.country}
-                    onChange={(e) => updateForm('country', e.target.value)}
-                    className={cn(errors.country && 'border-destructive')}
-                  />
-                  {errors.country && <p className="text-sm text-destructive">{errors.country}</p>}
+              {/* Delivery */}
+              <section>
+                <h2 className="font-display text-2xl font-light">Delivery</h2>
+
+                {/* Ship / Pickup toggle */}
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-secondary p-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryMethod('ship')}
+                    className={cn(
+                      'flex items-center justify-center gap-2 rounded-md py-3 text-sm font-medium transition-colors',
+                      deliveryMethod === 'ship'
+                        ? 'bg-background shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Truck className="h-4 w-4" />
+                    Ship
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeliveryMethod('pickup')}
+                    className={cn(
+                      'flex items-center justify-center gap-2 rounded-md py-3 text-sm font-medium transition-colors',
+                      deliveryMethod === 'pickup'
+                        ? 'bg-background shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    Pickup
+                  </button>
                 </div>
-              </div>
-            </div>
-
-            {/* Order Summary */}
-            <div>
-              <div className="rounded-lg border border-border bg-secondary/30 p-6">
-                <h2 className="text-lg font-semibold">Order Summary</h2>
 
                 <div className="mt-6 space-y-4">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex gap-4">
-                      <div className="h-20 w-16 flex-shrink-0 overflow-hidden bg-secondary">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="h-full w-full object-cover object-center"
+                  <div className="space-y-2">
+                    <Label>Country/Region</Label>
+                    <Input value="South Africa" disabled />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="firstName">First name</Label>
+                      <Input
+                        id="firstName"
+                        value={form.firstName}
+                        onChange={(e) => updateForm('firstName', e.target.value)}
+                        className={cn(errors.firstName && 'border-destructive')}
+                      />
+                      {errors.firstName && (
+                        <p className="text-sm text-destructive">{errors.firstName}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="lastName">Last name</Label>
+                      <Input
+                        id="lastName"
+                        value={form.lastName}
+                        onChange={(e) => updateForm('lastName', e.target.value)}
+                        className={cn(errors.lastName && 'border-destructive')}
+                      />
+                      {errors.lastName && (
+                        <p className="text-sm text-destructive">{errors.lastName}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {deliveryMethod === 'ship' ? (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="company">Company (optional)</Label>
+                        <Input
+                          id="company"
+                          value={form.company}
+                          onChange={(e) => updateForm('company', e.target.value)}
                         />
                       </div>
-                      <div className="flex flex-1 flex-col justify-between">
+
+                      <div className="space-y-2">
+                        <Label htmlFor="address">Address</Label>
+                        <Input
+                          id="address"
+                          value={form.address}
+                          onChange={(e) => updateForm('address', e.target.value)}
+                          className={cn(errors.address && 'border-destructive')}
+                        />
+                        {errors.address && (
+                          <p className="text-sm text-destructive">{errors.address}</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="apartment">Apartment, suite, etc. (optional)</Label>
+                        <Input
+                          id="apartment"
+                          value={form.apartment}
+                          onChange={(e) => updateForm('apartment', e.target.value)}
+                        />
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="city">City</Label>
+                          <Input
+                            id="city"
+                            value={form.city}
+                            onChange={(e) => updateForm('city', e.target.value)}
+                            className={cn(errors.city && 'border-destructive')}
+                          />
+                          {errors.city && <p className="text-sm text-destructive">{errors.city}</p>}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="state">Province</Label>
+                          <Input
+                            id="state"
+                            value={form.state}
+                            onChange={(e) => updateForm('state', e.target.value)}
+                            className={cn(errors.state && 'border-destructive')}
+                          />
+                          {errors.state && (
+                            <p className="text-sm text-destructive">{errors.state}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="zipCode">Postal code</Label>
+                          <Input
+                            id="zipCode"
+                            value={form.zipCode}
+                            onChange={(e) => updateForm('zipCode', e.target.value)}
+                            className={cn(errors.zipCode && 'border-destructive')}
+                          />
+                          {errors.zipCode && (
+                            <p className="text-sm text-destructive">{errors.zipCode}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Shipping method */}
+                      <div className="rounded-lg border border-border p-4">
+                        <p className="text-sm font-medium">Shipping method</p>
+                        <div className="mt-2 flex items-center justify-between rounded-md bg-secondary/50 p-3 text-sm">
+                          <span className="flex items-center gap-2">
+                            <Truck className="h-4 w-4 text-muted-foreground" />
+                            The Courier Guy — door-to-door
+                          </span>
+                          <span className="font-medium text-gold">
+                            {shipping === 0 ? 'Free' : `R ${shipping.toFixed(2)}`}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Free delivery on orders of R1500 or more.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-border p-4">
+                      <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h4 className="text-sm font-medium">{item.name}</h4>
-                          <p className="text-xs text-muted-foreground">
-                            {item.size} / {item.color} × {item.quantity}
+                          <p className="text-sm font-medium">Chief Fashion House</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            102 Helen Joseph Street, Johannesburg CBD
+                          </p>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Usually ready in 5–7 working days (Umbaco pieces 7–10). We'll contact
+                            you on the number below when your order is ready for collection.
                           </p>
                         </div>
-                        <p className="text-sm font-medium">R {(item.price * item.quantity).toFixed(2)} ZAR</p>
+                        <span className="text-sm font-medium text-gold">Free</span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )}
 
-                <div className="mt-6 space-y-2 border-t border-border pt-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>R {total.toFixed(2)} ZAR</span>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone</Label>
+                    <Input
+                      id="phone"
+                      value={form.phone}
+                      onChange={(e) => updateForm('phone', e.target.value)}
+                      placeholder="e.g. 078 957 6675"
+                      className={cn(errors.phone && 'border-destructive')}
+                    />
+                    {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Shipping (The Courier Guy)</span>
-                    <span className="text-gold">
-                      {shipping === 0 ? 'Free' : `R ${shipping.toFixed(2)} ZAR`}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Tax</span>
-                    <span>R {tax.toFixed(2)} ZAR</span>
-                  </div>
-                  <div className="flex justify-between border-t border-border pt-4 text-lg font-semibold">
-                    <span>Total</span>
-                    <span>R {grandTotal.toFixed(2)} ZAR</span>
-                  </div>
+                </div>
+              </section>
+
+              {/* Payment */}
+              <section>
+                <h2 className="font-display text-2xl font-light">Payment</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  All transactions are secure and encrypted.
+                </p>
+                <div className="mt-4 rounded-lg border border-border p-4 text-sm">
+                  <p className="font-medium">Ozow — Instant EFT (pay by bank)</p>
+                  <p className="mt-1 text-muted-foreground">
+                    You'll be redirected to Ozow to approve the payment securely from your bank.
+                    No card needed.
+                  </p>
                 </div>
 
                 <Button type="submit" className="mt-6 w-full" size="lg" disabled={isLoading}>
-                  {isLoading ? 'Redirecting to Payment...' : 'Proceed to Payment'}
+                  {isLoading
+                    ? 'Redirecting to Payment...'
+                    : deliveryMethod === 'pickup'
+                      ? 'Pay Now — Collect In Store'
+                      : 'Pay Now'}
                 </Button>
 
-                <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Secure payment powered by Ozow
-                </p>
-                <p className="mt-1 text-center text-xs text-muted-foreground">
-                  Delivery nationwide by The Courier Guy · Free delivery on orders of R1500 or more
-                </p>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
                   By placing your order, you agree to our{' '}
                   <Link to="/terms" className="underline hover:text-foreground">
@@ -345,6 +575,15 @@ const Checkout = () => {
                   </Link>
                   .
                 </p>
+              </section>
+            </div>
+
+            {/* Right column — order summary (desktop) */}
+            <div className="hidden lg:block">
+              <div className="sticky top-28 rounded-lg border border-border bg-secondary/30 p-6">
+                <h2 className="text-lg font-semibold">Order summary</h2>
+                <div className="mt-6">{summaryItems}</div>
+                <div className="mt-6">{summaryTotals}</div>
               </div>
             </div>
           </form>
