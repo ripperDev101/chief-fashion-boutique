@@ -64,7 +64,7 @@ const PRODUCT_OVERRIDES: Record<string, Partial<Product>> = {
   },
   '/IMG_2221.PNG': {
     name: 'Orange African print dress',
-    price: 600,
+    price: 500,
     colors: ['Orange'],
     sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
     images: ['/orangeAfrican1.PNG', '/orangeAfrican2.PNG', '/orangeAfrican3.PNG'],
